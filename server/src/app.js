@@ -7,6 +7,7 @@ const sessionMiddleware = require('./config/session');
 const passport = require('./config/passport');
 const authRoutes = require('./routes/auth.routes');
 const teamRoutes = require('./routes/team.routes');
+const taskRoutes = require('./routes/task.routes');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -33,6 +34,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/teams', teamRoutes);
+app.use('/api/tasks', taskRoutes);
 
 app.use(errorHandler);
 
