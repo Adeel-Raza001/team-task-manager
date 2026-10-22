@@ -4,12 +4,17 @@ const pool = require('./db');
 
 const isProd = process.env.NODE_ENV === 'production';
 
-const sessionMiddleware = session({
-  // Sessions are stored in PostgreSQL (falls back to memory store if DB is unavailable in dev)
-  store: new pgSession({
-    pool,
-    tableName: 'session',
-  }),
+// PostgreSQL store when DATABASE_URL exists; otherwise in-memory (dev only)
+const store = process.env.DATABASE_URL
+  ? new pgSession({ pool, tableName: 'session' })
+  : undefined;
+
+if (!store) {
+  console.warn('DATABASE_URL not set: using in-memory session store (dev only)');
+}
+
+module.exports = session({
+  store,
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
@@ -17,8 +22,6 @@ const sessionMiddleware = session({
     httpOnly: true,
     secure: isProd,
     sameSite: 'lax',
-    maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+    maxAge: 1000 * 60 * 60 * 24 * 7,
   },
 });
-
-module.exports = sessionMiddleware;
