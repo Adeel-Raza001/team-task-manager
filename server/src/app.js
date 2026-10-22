@@ -16,14 +16,14 @@ const errorHandler = require('./middleware/errorHandler');
 const app = express();
 const PORT = process.env.PORT || 5000;
 const isProd = process.env.NODE_ENV === 'production';
+const isVercel = Boolean(process.env.VERCEL);
 
-// Hosting proxies (Render etc.): needed for secure cookies
+// Hosting proxies: needed for secure cookies
 app.set('trust proxy', 1);
 
-// Helmet's default CSP is fine for the built Vite app (no inline scripts)
 app.use(helmet());
 
-// CORS only in dev (React on :5173). In production one server serves everything.
+// CORS only in dev (React on :5173)
 if (!isProd) {
   app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
 }
@@ -41,8 +41,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/teams', teamRoutes);
 app.use('/api/tasks', taskRoutes);
 
-// In production, serve the built React app from the same server
-if (isProd) {
+// Docker/self-hosted production: Express serves the built React app.
+// On Vercel the static files are served by Vercel itself.
+if (isProd && !isVercel) {
   const clientDist = path.join(__dirname, '../../client/dist');
   app.use(express.static(clientDist));
   app.get(/^\/(?!api).*/, (req, res) => {
@@ -52,17 +53,22 @@ if (isProd) {
 
 app.use(errorHandler);
 
-// Create tables on startup if they don't exist, then start listening
-const initDb = async () => {
-  const sql = fs.readFileSync(path.join(__dirname, '../db/schema.sql'), 'utf8');
-  await pool.query(sql);
-};
+// Exported so Vercel can use the app as a serverless function
+module.exports = app;
 
-initDb()
-  .then(() => {
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-  })
-  .catch((err) => {
-    console.error('Database init failed', err);
-    process.exit(1);
-  });
+// Only start a listening server when run directly (npm run dev / Docker)
+if (require.main === module) {
+  const initDb = async () => {
+    const sql = fs.readFileSync(path.join(__dirname, '../db/schema.sql'), 'utf8');
+    await pool.query(sql);
+  };
+
+  initDb()
+    .then(() => {
+      app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    })
+    .catch((err) => {
+      console.error('Database init failed', err);
+      process.exit(1);
+    });
+}

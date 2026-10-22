@@ -1,0 +1,18 @@
+{
+  "name": "team-task-manager",
+  "private": true,
+  "dependencies": {
+    "bcryptjs": "^3.0.0",
+    "connect-pg-simple": "^10.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.0.0",
+    "express": "^5.0.0",
+    "express-rate-limit": "^8.0.0",
+    "express-session": "^1.18.0",
+    "helmet": "^8.0.0",
+    "joi": "^18.0.0",
+    "passport": "^0.7.0",
+    "passport-local": "^1.0.0",
+    "pg": "^8.0.0"
+  }
+}
