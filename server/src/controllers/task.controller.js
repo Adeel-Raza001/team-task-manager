@@ -9,6 +9,24 @@ const getRole = async (teamId, userId) => {
   return rows[0]?.role || null;
 };
 
+
+// Today as 'YYYY-MM-DD' (server local time)
+const todayString = () => {
+  const d = new Date();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${month}-${day}`;
+};
+
+// Normalizes a Joi date / string to 'YYYY-MM-DD'
+const toDateString = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return value.slice(0, 10);
+  const d = new Date(value);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+
 // Checks that the assignee belongs to the team
 const isMember = async (teamId, userId) => (await getRole(teamId, userId)) !== null;
 
@@ -30,10 +48,17 @@ const TASK_SELECT = `
   JOIN teams tm_team ON tm_team.id = t.team_id
 `;
 
+
+
 // POST /api/tasks
 const createTask = async (req, res, next) => {
   try {
     const { title, description, status, priority, due_date, team_id, assigned_to } = req.body;
+
+    const dueStr = toDateString(due_date);
+    if (dueStr && dueStr < todayString()) {
+      return res.status(400).json({ message: 'Due date cannot be in the past' });
+    }
 
     if (!(await isMember(team_id, req.user.id))) {
       return res.status(404).json({ message: 'Team not found' });
@@ -123,9 +148,20 @@ const updateTask = async (req, res, next) => {
     if (!task) return res.status(404).json({ message: 'Task not found' });
 
     const body = req.body;
+
+    if (body.due_date) {
+      const newDue = toDateString(body.due_date);
+      const oldDue = toDateString(task.due_date);
+
+      if (newDue < todayString() && newDue !== oldDue) {
+        return res.status(400).json({ message: 'Due date cannot be in the past' });
+      }
+    }
     if (body.assigned_to && !(await isMember(task.team_id, body.assigned_to))) {
       return res.status(400).json({ message: 'Assignee must be a member of the team' });
     }
+
+
 
     // Only update the fields that were actually sent
     const fields = [];
