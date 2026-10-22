@@ -1,25 +1,31 @@
 import { useCallback, useEffect, useState } from 'react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import TeamModal from '../components/TeamModal';
 import TaskModal from '../components/TaskModal';
-import TaskCard from '../components/TaskCard';
 import MembersPanel from '../components/MembersPanel';
+import KanbanBoard from '../components/KanbanBoard';
+import StatsCards from '../components/StatsCards';
+import ReminderBanner from '../components/ReminderBanner';
+import Avatar from '../components/Avatar';
 
 export default function DashboardPage() {
   const { user, logout } = useAuth();
+  const toast = useToast();
 
   const [teams, setTeams] = useState([]);
-  const [tasks, setTasks] = useState([]);
-  const [selectedTeamId, setSelectedTeamId] = useState(''); // '' = all teams
-  const [assigneeFilter, setAssigneeFilter] = useState(''); // '' = anyone, 'me' = my tasks
+  const [tasks, setTasks] = useState([]); // filtered, shown on the board
+  const [allTasks, setAllTasks] = useState([]); // unfiltered, used for stats + reminders
+  const [selectedTeamId, setSelectedTeamId] = useState('');
+  const [assigneeFilter, setAssigneeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterMembers, setFilterMembers] = useState([]);
 
   const [showTeamModal, setShowTeamModal] = useState(false);
-  const [taskModal, setTaskModal] = useState(null); // null | { task? }
+  const [taskModal, setTaskModal] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -39,8 +45,10 @@ export default function DashboardPage() {
       if (assigneeFilter) params.assigneeId = assigneeFilter === 'me' ? user.id : assigneeFilter;
       if (statusFilter) params.status = statusFilter;
       if (debouncedSearch) params.search = debouncedSearch;
-      const res = await api.get('/tasks', { params });
-      setTasks(res.data.tasks);
+
+      const [filtered, all] = await Promise.all([api.get('/tasks', { params }), api.get('/tasks')]);
+      setTasks(filtered.data.tasks);
+      setAllTasks(all.data.tasks);
     } catch {
       setError('Could not load tasks');
     } finally {
@@ -48,23 +56,19 @@ export default function DashboardPage() {
     }
   }, [selectedTeamId, assigneeFilter, statusFilter, debouncedSearch, user.id]);
 
-  // Initial teams load
   useEffect(() => {
     loadTeams().catch(() => setError('Could not load teams'));
   }, [loadTeams]);
 
-  // Wait 300ms after typing stops before searching
   useEffect(() => {
     const id = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(id);
   }, [search]);
 
-  // Reload tasks whenever a filter changes
   useEffect(() => {
     loadTasks();
   }, [loadTasks]);
 
-  // Assignee dropdown options come from the selected team's members
   useEffect(() => {
     setAssigneeFilter('');
     if (!selectedTeamId) {
@@ -81,17 +85,20 @@ export default function DashboardPage() {
     setShowTeamModal(false);
     await loadTeams();
     setSelectedTeamId(String(team.id));
+    toast('Team created');
   };
 
   const handleTeamDeleted = async () => {
     setSelectedTeamId('');
     await loadTeams();
     loadTasks();
+    toast('Team deleted');
   };
 
-  const handleTaskSaved = () => {
+  const handleTaskSaved = (wasEdit) => {
     setTaskModal(null);
     loadTasks();
+    toast(wasEdit ? 'Task updated' : 'Task created');
   };
 
   const handleDeleteTask = async (task) => {
@@ -99,8 +106,23 @@ export default function DashboardPage() {
     try {
       await api.delete(`/tasks/${task.id}`);
       loadTasks();
+      toast('Task deleted');
     } catch (err) {
-      alert(err.response?.data?.message || 'Could not delete task');
+      toast(err.response?.data?.message || 'Could not delete task', 'error');
+    }
+  };
+
+  // Used by drag-and-drop and the mobile "Move to" dropdown
+  const handleStatusChange = async (task, status) => {
+    // Optimistic update so the card moves instantly
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, status } : t)));
+    try {
+      await api.put(`/tasks/${task.id}`, { status });
+      loadTasks();
+      toast('Task moved');
+    } catch (err) {
+      loadTasks();
+      toast(err.response?.data?.message || 'Could not move task', 'error');
     }
   };
 
@@ -110,12 +132,12 @@ export default function DashboardPage() {
   };
 
   const selectClass =
-    'rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500';
+    'rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500';
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50">
+    <div className="flex min-h-screen flex-col bg-slate-50">
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-200 bg-white/90 px-4 py-3 backdrop-blur">
         <div className="flex items-center gap-3">
           <button
             className="rounded-lg p-1.5 text-gray-600 hover:bg-gray-100 md:hidden"
@@ -124,11 +146,17 @@ export default function DashboardPage() {
           >
             &#9776;
           </button>
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-sm font-bold text-white">
+            T
+          </span>
           <h1 className="text-lg font-bold text-gray-900">Team Task Manager</h1>
         </div>
         <div className="flex items-center gap-3 text-sm">
-          <span className="hidden text-gray-600 sm:inline">{user.name}</span>
-          <button onClick={logout} className="rounded-lg bg-gray-800 px-3 py-1.5 text-white hover:bg-gray-900">
+          <div className="flex items-center gap-2">
+            <Avatar name={user.name} />
+            <span className="hidden text-gray-700 sm:inline">{user.name}</span>
+          </div>
+          <button onClick={logout} className="rounded-lg border border-gray-300 px-3 py-1.5 text-gray-700 hover:bg-gray-100">
             Logout
           </button>
         </div>
@@ -139,10 +167,10 @@ export default function DashboardPage() {
         <aside
           className={`${
             sidebarOpen ? 'block' : 'hidden'
-          } absolute inset-y-0 left-0 z-20 w-64 border-r border-gray-200 bg-white p-4 md:static md:block`}
+          } absolute inset-y-0 left-0 z-20 w-64 border-r border-gray-200 bg-white p-4 shadow-lg md:static md:block md:shadow-none`}
         >
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Teams</h2>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Teams</h2>
             <button
               onClick={() => setShowTeamModal(true)}
               className="rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-700"
@@ -170,7 +198,7 @@ export default function DashboardPage() {
               }`}
             >
               <span className="truncate">{t.name}</span>
-              <span className="ml-2 text-xs text-gray-400">{t.member_count}</span>
+              <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">{t.member_count}</span>
             </button>
           ))}
           {teams.length === 0 && <p className="mt-2 text-sm text-gray-500">No teams yet. Create one to get started.</p>}
@@ -178,6 +206,9 @@ export default function DashboardPage() {
 
         {/* Main */}
         <main className="min-w-0 flex-1 space-y-4 p-4 md:p-6">
+          <ReminderBanner tasks={allTasks} userId={user.id} />
+          <StatsCards tasks={allTasks} />
+
           {/* Filters */}
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -208,7 +239,7 @@ export default function DashboardPage() {
               onClick={() => setTaskModal({})}
               disabled={teams.length === 0}
               title={teams.length === 0 ? 'Create a team first' : ''}
-              className="ml-auto rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="ml-auto rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               + New task
             </button>
@@ -233,16 +264,13 @@ export default function DashboardPage() {
 
           {loading ? (
             <p className="text-gray-500">Loading...</p>
-          ) : tasks.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-gray-300 bg-white p-10 text-center text-gray-500">
-              No tasks found.
-            </div>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {tasks.map((task) => (
-                <TaskCard key={task.id} task={task} onEdit={(t) => setTaskModal({ task: t })} onDelete={handleDeleteTask} />
-              ))}
-            </div>
+            <KanbanBoard
+              tasks={tasks}
+              onEdit={(t) => setTaskModal({ task: t })}
+              onDelete={handleDeleteTask}
+              onStatusChange={handleStatusChange}
+            />
           )}
         </main>
       </div>

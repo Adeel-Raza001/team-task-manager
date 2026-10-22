@@ -47,7 +47,7 @@ export default function TaskModal({ task, teams, defaultTeamId, onClose, onSaved
       } else {
         await api.post('/tasks', { ...payload, team_id: Number(form.team_id) });
       }
-      onSaved();
+      onSaved(isEdit);
     } catch (err) {
       const data = err.response?.data;
       setError(data?.errors?.join(', ') || data?.message || 'Could not save task');
