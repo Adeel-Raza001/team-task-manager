@@ -1,11 +1,13 @@
 const { Pool, types } = require('pg');
 
-// Return DATE columns (OID 1082) as plain 'YYYY-MM-DD' strings instead of
-// JS Date objects, so timezones can never shift a due date by a day.
 types.setTypeParser(1082, (value) => value);
 
+const url = process.env.DATABASE_URL || '';
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: url,
+  // Hosted databases (Neon) require SSL; local Postgres does not
+  ssl: url.includes('neon.tech') ? { rejectUnauthorized: false } : false,
 });
 
 pool.on('error', (err) => {
