@@ -2,6 +2,16 @@ import { useEffect, useState } from 'react';
 import Modal from './Modal';
 import api from '../api/axios';
 
+
+// Today as 'YYYY-MM-DD' in the user's local timezone
+const todayString = () => {
+  const d = new Date();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${month}-${day}`;
+};
+
+
 // Pass `task` to edit, omit it to create. `teams` fills the team dropdown.
 export default function TaskModal({ task, teams, defaultTeamId, onClose, onSaved }) {
   const isEdit = Boolean(task);
@@ -32,6 +42,14 @@ export default function TaskModal({ task, teams, defaultTeamId, onClose, onSaved
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    // Block past due dates (unless the date is unchanged from the saved task)
+    const originalDue = task?.due_date ? task.due_date.slice(0, 10) : '';
+    if (form.due_date && form.due_date < todayString() && form.due_date !== originalDue) {
+      setError('Due date cannot be in the past');
+      return;
+    }
+    
     setSubmitting(true);
     try {
       const payload = {
@@ -120,7 +138,13 @@ export default function TaskModal({ task, teams, defaultTeamId, onClose, onSaved
 
         <div>
           <label className={labelClass}>Due date</label>
-          <input type="date" value={form.due_date} onChange={set('due_date')} className={inputClass} />
+          <input
+            type="date"
+            value={form.due_date}
+            onChange={set('due_date')}
+            min={task?.due_date && task.due_date.slice(0, 10) < todayString() ? task.due_date.slice(0, 10) : todayString()}
+            className={inputClass}
+          />
         </div>
 
         <div className="flex justify-end gap-2">
